@@ -21,6 +21,13 @@ Start docker with custom config. See [config.toml.example](config.toml.example)
 docker run -v $(pwd)/config.toml:/home/srtrelay/config.toml ghcr.io/voc/srtrelay/srtrelay:latest
 ```
 
+## Restreaming to RTMP
+Append list of RTMP destinations to URL:
+srt://{address}:{port}?streamid=publish/{streamName}/{password or empty space}/{rtmpAddress1};{rtmpAddress2};{rtmpAddressN}
+
+Example link:
+srt://localhost:1337?streamid=publish/example//rtmp://localhost/live/example;rtmp://a.rtmp.youtube.com/live2/{streamKey}
+
 ## Run with docker-compose
 
 In your `docker-compose.yml`:

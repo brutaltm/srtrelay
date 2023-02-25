@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/haivision/srtgo"
@@ -133,6 +135,7 @@ func (s *ServerImpl) listenAt(ctx context.Context, host string, port uint16) err
 	options["transtype"] = "live"
 	options["listen_timeout"] = strconv.Itoa(int(s.config.ListenTimeout))
 	options["latency"] = strconv.Itoa(int(s.config.Latency))
+	//options["snddropdelay"] = strconv.Itoa(100)
 
 	sck := srtgo.NewSrtSocket(host, port, options)
 	sck.SetSockOptInt(srtgo.SRTO_LOSSMAXTTL, int(s.config.LossMaxTTL))
@@ -182,6 +185,9 @@ func (s *ServerImpl) Handle(ctx context.Context, sock *srtgo.SrtSocket, addr *ne
 	defer sock.Close()
 
 	idstring, err := sock.GetSockOptString(C.SRTO_STREAMID)
+	latency, err := sock.GetSockOptInt(C.SRTO_LATENCY)
+	oheadBw, err := sock.GetSockOptInt(C.SRTO_OHEADBW)
+	log.Println("Stream:", idstring, "Latency:", latency, "Overhead:", oheadBw)
 	if err != nil {
 		log.Println(err)
 		return
@@ -229,7 +235,7 @@ func (s *ServerImpl) play(conn *srtConn) error {
 		buf, ok := <-sub
 
 		buffered := len(sub)
-		if buffered > cap(sub)/2 {
+		if buffered > int(float64(cap(sub))*0.75) {
 			log.Printf("%s - %s - %d packets late in buffer\n", conn.address, conn.streamid.Name(), len(sub))
 		}
 
@@ -272,17 +278,43 @@ func (s *ServerImpl) publish(conn *srtConn) error {
 	defer close(pub)
 	log.Printf("%s - publish %s\n", conn.address, conn.streamid.Name())
 
+	var wrapperCmd *CommandWrapper
+	done := make(chan bool, 1)
+	done <- false
+
+	// RTMP links provided in stream URL
+	if destinations := conn.streamid.RtmpAdresses(); destinations != nil && len(destinations) > 0 {
+		inputAddress := "srt://localhost:" + strings.Split(s.config.Addresses[0], ":")[1] + "?streamid=play/" + conn.streamid.Name()
+
+		// Create ffmpeg command string
+		ffmpeg := fmt.Sprintf("ffmpeg -re -analyzeduration 100000 -probesize 0.1M -flags low_delay -i %s -strict -2 -y", inputAddress)
+		for _, dest := range destinations {
+			ffmpeg = fmt.Sprintf("%s -f fifo -fifo_format flv -map 0:0 -map 0:1? -c copy -vtag 7 -atag 10 -drop_pkts_on_overflow 1 -attempt_recovery 1 -recovery_wait_time 1 -reconnect 1 -reconnect_streamed 1 %s", ffmpeg, dest)
+		}
+		fmt.Println(ffmpeg)
+
+		// Create and run Command that executes ffmpeg
+		wrapperCmd = &CommandWrapper{Cmd: exec.Command("sh", "-c", ffmpeg)}
+		go wrapperCmd.runFFmpeg(done)
+	}
+
 	for {
 		// Push read buffers to all clients via the publish channel
 		// a ringbuffer would probably be more efficient
 		buf := make([]byte, PacketSize)
 		n, err := conn.socket.Read(buf)
 		if err != nil {
+			if wrapperCmd != nil {
+				wrapperCmd.close(done)
+			}
 			return err
 		}
 
 		// handle EOF
 		if n == 0 {
+			if wrapperCmd != nil {
+				wrapperCmd.close(done)
+			}
 			return nil
 		}
 

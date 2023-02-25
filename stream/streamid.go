@@ -38,6 +38,7 @@ type StreamID struct {
 	mode     Mode
 	name     string
 	password string
+	rtmpAddr []string
 }
 
 // FromString reads a streamid from a string.
@@ -45,10 +46,14 @@ type StreamID struct {
 // The second slash and password is optional and defaults to empty.
 // If error is not nil then StreamID will remain unchanged.
 func (s *StreamID) FromString(src string) error {
-	split := strings.Split(src, "/")
+	split := strings.SplitN(src, "/", 4)
 
 	password := ""
-	if len(split) == 3 {
+	rtmpAddrStr := ""
+	if len(split) == 4 {
+		password = split[2]
+		rtmpAddrStr = split[3]
+	} else if len(split) == 3 {
 		password = split[2]
 	} else if len(split) != 2 {
 		return InvalidStreamID
@@ -74,6 +79,10 @@ func (s *StreamID) FromString(src string) error {
 	s.mode = mode
 	s.name = name
 	s.password = password
+
+	if len(rtmpAddrStr) > 0 {
+		s.rtmpAddr = strings.Split(rtmpAddrStr, ";")
+	}
 	return nil
 }
 
@@ -97,4 +106,8 @@ func (s StreamID) Name() string {
 
 func (s StreamID) Password() string {
 	return s.password
+}
+
+func (s StreamID) RtmpAdresses() []string {
+	return s.rtmpAddr
 }
