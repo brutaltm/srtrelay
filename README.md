@@ -23,10 +23,13 @@ docker run -v $(pwd)/config.toml:/home/srtrelay/config.toml ghcr.io/voc/srtrelay
 
 ## Restreaming to RTMP
 Append list of RTMP destinations to URL:
+```bash
 srt://{address}:{port}?streamid=publish/{streamName}/{password or empty space}/{rtmpAddress1};{rtmpAddress2};{rtmpAddressN}
-
+```
 Example link:
+```bash
 srt://localhost:1337?streamid=publish/example//rtmp://localhost/live/example;rtmp://a.rtmp.youtube.com/live2/{streamKey}
+```
 
 ## Run with docker-compose
 
